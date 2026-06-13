@@ -1,0 +1,9 @@
+.venv/
+build/
+dist/
+venv/
+__pycache__/
+*.xlsx
+*.csv
+*.pyc
+*.pptx
