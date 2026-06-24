@@ -69,62 +69,87 @@ def parse_input_file(input_path: Path) -> list[JudgeRecord]:
 	expecting_header = False
 	records: list[JudgeRecord] = []
 
-	for index, raw_line in enumerate(lines, start=1):
+	index = 0
+	while index < len(lines):
+		line_number = index + 1
+		raw_line = lines[index]
 		line = raw_line.strip()
 		if not line:
+			index += 1
 			continue
 
 		if line.startswith("Competition: "):
 			if competition_name is not None:
-				raise ParseError(index, "Competition was already defined.")
+				raise ParseError(line_number, "Competition was already defined.")
 			if session_name is not None or station_number is not None or records:
-				raise ParseError(index, "Competition must appear before session and station data.")
+				raise ParseError(line_number, "Competition must appear before session and station data.")
 			competition_name = line[len("Competition: ") :].strip()
 			if not competition_name:
-				raise ParseError(index, "Competition name is empty.")
+				raise ParseError(line_number, "Competition name is empty.")
+			index += 1
 			continue
 
 		if line.startswith("Judges: "):
 			session_name = line[len("Judges: ") :].strip()
 			if not session_name:
-				raise ParseError(index, "Session name is empty.")
+				raise ParseError(line_number, "Session name is empty.")
 			station_number = None
 			expecting_header = False
+			index += 1
 			continue
 
 		if line.startswith("Station "):
 			if session_name is None:
-				raise ParseError(index, "Station found before a Judges session header.")
+				raise ParseError(line_number, "Station found before a Judges session header.")
 			station_number = line[len("Station ") :].strip()
 			if not station_number:
-				raise ParseError(index, "Station number is empty.")
+				raise ParseError(line_number, "Station number is empty.")
 			expecting_header = True
+			index += 1
 			continue
 
 		if "\t" not in raw_line:
 			if session_name is not None and station_number is not None and not expecting_header:
+				index += 1
 				continue
-			raise ParseError(index, "Unexpected line content.")
+			raise ParseError(line_number, "Unexpected line content.")
 
 		columns = raw_line.split("\t")
 		if columns == EXPECTED_HEADER:
 			if session_name is None:
-				raise ParseError(index, "Header found before a Judges session header.")
+				raise ParseError(line_number, "Header found before a Judges session header.")
 			if station_number is None:
-				raise ParseError(index, "Header found before a Station header.")
+				raise ParseError(line_number, "Header found before a Station header.")
 			expecting_header = False
+			index += 1
 			continue
 
 		if expecting_header:
-			raise ParseError(index, "Expected the tab-delimited judge header after the Station line.")
+			raise ParseError(line_number, "Expected the tab-delimited judge header after the Station line.")
 
 		if session_name is None:
-			raise ParseError(index, "Judge row found before a Judges session header.")
+			raise ParseError(line_number, "Judge row found before a Judges session header.")
 		if station_number is None:
-			raise ParseError(index, "Judge row found before a Station header.")
+			raise ParseError(line_number, "Judge row found before a Station header.")
 
-		record = parse_judge_row(index, columns, competition_name, session_name, station_number)
+		# Support alternate exports where Assigned Judge is moved to the next line.
+		if len(columns) >= 5 and not columns[4].strip() and index + 1 < len(lines):
+			next_raw_line = lines[index + 1]
+			next_line = next_raw_line.strip()
+			if (
+				next_line
+				and "\t" not in next_raw_line
+				and not next_line.startswith("Competition: ")
+				and not next_line.startswith("Judges: ")
+				and not next_line.startswith("Station ")
+			):
+				columns = columns.copy()
+				columns[4] = next_line
+				index += 1
+
+		record = parse_judge_row(line_number, columns, competition_name, session_name, station_number)
 		records.append(record)
+		index += 1
 
 	if expecting_header:
 		raise ParseError(len(lines) or 1, "The file ended before the expected judge header row.")
